@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Elagoht/collage-snippets-highlighter/main/schemas/collage-plugin-manifest.schema.json",
+  "name": "elagoht/meta",
+  "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
+  "repository": "https://github.com/Elagoht/collage-meta",
+  "config": {
+    "type": "object",
+    "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
+    "properties": {
+      "baseURL": {
+        "type": "string",
+        "description": "BaseURL is the site's origin, \"https://example.com\". Required: a canonical URL and an og:image are absolute, and the application cannot know its own host."
+      },
+      "defaultImage": {
+        "type": "string",
+        "description": "DefaultImage is the og:image of a page that names none: a path on the site, made absolute with BaseURL, or an absolute URL."
+      },
+      "defaultImageAlt": {
+        "type": "string",
+        "description": "DefaultImageAlt describes DefaultImage."
+      },
+      "locales": {
+        "type": "object",
+        "description": "Locales maps a collage locale to the og:locale it is written as: \"en\" to \"en_US\". A locale not in it is written as it is, with \"-\" made \"_\".",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "noAlternates": {
+        "type": "boolean",
+        "description": "NoAlternates leaves out the <link rel=\"alternate\" hreflang> tags, for a site whose layout writes its own."
+      },
+      "siteName": {
+        "type": "string",
+        "description": "SiteName is og:site_name."
+      },
+      "twitterSite": {
+        "type": "string",
+        "description": "TwitterSite is the site's own account, \"@example\", sent as twitter:site."
+      }
+    }
+  }
+}
