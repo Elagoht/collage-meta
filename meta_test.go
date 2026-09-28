@@ -36,11 +36,11 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 	}
 	layout := func() *collage.Fragment { return collage.NewFragment("layout", "layout.html").Build() }
 
-	home := collage.NewPage("home").WithLayout(layout()).
+	home := collage.NewPage("home").WithLayouts(layout()).
 		WithContent(collage.NewFragment("home", "p.html").Build()).
 		WithPath("en", "/").WithPath("tr", "/").Build()
 
-	post := collage.NewPage("post").WithLayout(layout()).
+	post := collage.NewPage("post").WithLayouts(layout()).
 		WithContent(collage.NewFragment("post", "p.html").WithDataHandler(
 			func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
 				meta.Set(rc, meta.Page{
@@ -59,7 +59,7 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 
 	// Only in English, and a copy of another page: its canonical is set by hand,
 	// and a fragment's own description beats Set's.
-	only := collage.NewPage("only").WithLayout(layout()).
+	only := collage.NewPage("only").WithLayouts(layout()).
 		WithContent(collage.NewFragment("only", "override.html").WithDataHandler(
 			func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
 				meta.Set(rc, meta.Page{Canonical: "/blog/original", Description: "from Set", TwitterCard: meta.Summary})
