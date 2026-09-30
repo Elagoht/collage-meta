@@ -224,3 +224,32 @@ func TestSetWithoutPlugin(t *testing.T) {
 	body := get(app.Handler(), "/").Body.String()
 	contains(t, body, `<meta property="og:image" content="/a.png">`, `<link rel="canonical" href="https://example.com/p">`)
 }
+
+// With no BaseURL of its own, the plugin falls back to the application's
+// Config.BaseURL for the canonical URL and og:url.
+func TestMeta_FallsBackToConfigBaseURL(t *testing.T) {
+	app, err := collage.New(&collage.Config{
+		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
+		Template: collage.TemplateConfig{FS: fstest.MapFS{
+			"t/p.html": {Data: []byte(`<html><head>{{hoist "head"}}</head><body>x</body></html>`)},
+		}, Root: "t"},
+		Locale:  collage.LocaleConfig{Default: "en", Supported: []string{"en"}},
+		BaseURL: "https://fromconfig.example",
+		Plugins: []collage.Plugin{meta.New(meta.Options{})}, // no BaseURL of its own
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Build()
+	if err := app.RegisterPage(page); err != nil {
+		t.Fatal(err)
+	}
+	rec := get(app.Handler(), "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want 200", rec.Code)
+	}
+	contains(t, rec.Body.String(),
+		`<link rel="canonical" href="https://fromconfig.example/">`,
+		`<meta property="og:url" content="https://fromconfig.example/">`,
+	)
+}

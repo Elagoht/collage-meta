@@ -67,9 +67,9 @@ const (
 type Options struct {
 	// SiteName is og:site_name.
 	SiteName string `json:"siteName"`
-	// BaseURL is the site's origin, "https://example.com". Required: a canonical
-	// URL and an og:image are absolute, and the application cannot know its own
-	// host.
+	// BaseURL is the site's origin, "https://example.com". A canonical URL and an
+	// og:image are absolute, and the application cannot know its own host; falls
+	// back to the application's Config.BaseURL when empty.
 	BaseURL string `json:"baseURL"`
 	// DefaultImage is the og:image of a page that names none: a path on the site,
 	// made absolute with BaseURL, or an absolute URL.
@@ -144,7 +144,7 @@ var (
 func New(opts Options) *Plugin { return &Plugin{opts: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.3" }
+func (p *Plugin) Version() string                { return "0.1.4" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 // ErrNoBaseURL is returned by Init without an absolute BaseURL.
@@ -154,6 +154,11 @@ var ErrNoBaseURL = errors.New("meta: BaseURL is required: canonical URLs and ima
 func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if err := host.Config(&p.opts); err != nil {
 		return err
+	}
+	// The plugin's own BaseURL wins; otherwise the application's Config.BaseURL,
+	// which collage validated and reports without a trailing slash.
+	if p.opts.BaseURL == "" {
+		p.opts.BaseURL = host.BaseURL()
 	}
 	base, err := url.Parse(p.opts.BaseURL)
 	if p.opts.BaseURL == "" || err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {

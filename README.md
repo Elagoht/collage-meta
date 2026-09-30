@@ -123,8 +123,9 @@ description too, and appears once.
 }
 ```
 
-`baseURL` is required, an `http` or `https` origin with no query: without it the
-application does not start. `noAlternates` leaves the `hreflang` links out, for a
+`baseURL` is an `http` or `https` origin with no query. Leave it empty to take the
+application's `Config.BaseURL` (collage v0.39.0); the application does not start when
+neither is set. `noAlternates` leaves the `hreflang` links out, for a
 layout that writes its own; `og:locale:alternate` is still written.
 
 ## Limitations
