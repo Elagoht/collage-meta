@@ -28,7 +28,7 @@
       },
       "noAlternates": {
         "type": "boolean",
-        "description": "NoAlternates leaves out the <link rel=\"alternate\" hreflang> tags, for a site whose layout writes its own."
+        "description": "NoAlternates leaves out the \u003clink rel=\"alternate\" hreflang\u003e tags, for a site whose layout writes its own."
       },
       "siteName": {
         "type": "string",
@@ -38,6 +38,7 @@
         "type": "string",
         "description": "TwitterSite is the site's own account, \"@example\", sent as twitter:site."
       }
-    }
+    },
+    "additionalProperties": false
   }
 }
