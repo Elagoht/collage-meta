@@ -68,8 +68,9 @@ type Options struct {
 	// SiteName is og:site_name.
 	SiteName string `json:"siteName"`
 	// BaseURL is the site's origin, "https://example.com". A canonical URL and an
-	// og:image are absolute, and the application cannot know its own host; falls
-	// back to the application's Config.BaseURL when empty.
+	// og:image are absolute, and the application cannot know its own host. When
+	// empty, URLs follow the application's Config.BaseURL, or per request the
+	// origin an OriginResolver plugin gives the request's host.
 	BaseURL string `json:"baseURL"`
 	// DefaultImage is the og:image of a page that names none: a path on the site,
 	// made absolute with BaseURL, or an absolute URL.
@@ -144,7 +145,7 @@ var (
 func New(opts Options) *Plugin { return &Plugin{opts: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.1.4" }
+func (p *Plugin) Version() string                { return "0.2.0" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 // ErrNoBaseURL is returned by Init without an absolute BaseURL.
@@ -155,21 +156,49 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	if err := host.Config(&p.opts); err != nil {
 		return err
 	}
-	// The plugin's own BaseURL wins; otherwise the application's Config.BaseURL,
-	// which collage validated and reports without a trailing slash.
+	p.host = host
+	// The plugin's own BaseURL wins; without one, URLs follow the origin collage
+	// resolves for the request's host, read per render.
 	if p.opts.BaseURL == "" {
-		p.opts.BaseURL = host.BaseURL()
+		if !canResolve(host) {
+			return fmt.Errorf("%w, got %q", ErrNoBaseURL, "")
+		}
+		return nil
 	}
 	base, err := url.Parse(p.opts.BaseURL)
-	if p.opts.BaseURL == "" || err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
+	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
 		return fmt.Errorf("%w, got %q", ErrNoBaseURL, p.opts.BaseURL)
 	}
 	if base.RawQuery != "" || base.Fragment != "" {
 		return fmt.Errorf("meta: BaseURL %q must be an origin, without a query or a fragment", p.opts.BaseURL)
 	}
-	p.host = host
 	p.site = &site{base: strings.TrimSuffix(p.opts.BaseURL, "/"), scheme: base.Scheme}
 	return nil
+}
+
+// canResolve reports whether collage can name an origin without the plugin's
+// own BaseURL: from Config.BaseURL, or per host from a plugin implementing
+// collage.OriginResolver.
+func canResolve(host collage.Host) bool {
+	if host.BaseURL() != "" {
+		return true
+	}
+	origins, ok := host.(collage.Origins)
+	return ok && origins.Dynamic()
+}
+
+// siteFor is the site rc's URLs are absolute against: the configured one, or one
+// for the origin collage resolves for the request's host.
+func (p *Plugin) siteFor(rc *collage.RenderContext) *site {
+	if p.site != nil {
+		return p.site
+	}
+	origin := collage.BaseURL(rc)
+	u, err := url.Parse(origin)
+	if origin == "" || err != nil {
+		return nil
+	}
+	return &site{base: origin, scheme: u.Scheme}
 }
 
 // OnBeforeRender declares the site's defaults and the page's own URLs. Declared
@@ -177,10 +206,14 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 // declares under the same key wins.
 func (p *Plugin) OnBeforeRender(_ context.Context, ev *collage.BeforeRenderEvent) error {
 	rc := ev.Context
-	if rc == nil || p.site == nil {
+	if rc == nil {
 		return nil
 	}
-	rc.Set(siteKey, p.site)
+	s := p.siteFor(rc)
+	if s == nil {
+		return nil
+	}
+	rc.Set(siteKey, s)
 	o := p.opts
 
 	if o.SiteName != "" {
@@ -195,7 +228,7 @@ func (p *Plugin) OnBeforeRender(_ context.Context, ev *collage.BeforeRenderEvent
 
 	card := Summary
 	if o.DefaultImage != "" {
-		rc.HoistProperty("og:image", p.site.absolute(o.DefaultImage))
+		rc.HoistProperty("og:image", s.absolute(o.DefaultImage))
 		if o.DefaultImageAlt != "" {
 			rc.HoistProperty("og:image:alt", o.DefaultImageAlt)
 			rc.HoistMeta("twitter:image:alt", o.DefaultImageAlt)
@@ -220,7 +253,11 @@ func (p *Plugin) pageURL(rc *collage.RenderContext, locale string) string {
 	if err != nil {
 		return ""
 	}
-	return p.site.base + path
+	s, _ := collage.Get[*site](rc, siteKey)
+	if s == nil {
+		return ""
+	}
+	return s.base + path
 }
 
 // locales declares og:locale, and for a page in more than one locale the others:

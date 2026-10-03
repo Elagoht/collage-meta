@@ -123,9 +123,13 @@ description too, and appears once.
 }
 ```
 
-`baseURL` is an `http` or `https` origin with no query. Leave it empty to take the
-application's `Config.BaseURL` (collage v0.39.0); the application does not start when
-neither is set. `noAlternates` leaves the `hreflang` links out, for a
+`baseURL` is an `http` or `https` origin with no query. Leave it empty and URLs
+follow the origin collage resolves for the request's host (collage v0.42.0): the
+application's `Config.BaseURL`, or per host the origin a plugin implementing
+`collage.OriginResolver` (such as `elagoht/tenant`) gives, so one site serves each
+host its own canonical, `og:url`, `og:image` and `hreflang` links. A host with no
+origin gets no absolute URLs. The application does not start when no source of an
+origin exists. `noAlternates` leaves the `hreflang` links out, for a
 layout that writes its own; `og:locale:alternate` is still written.
 
 ## Limitations

@@ -9,7 +9,7 @@
     "properties": {
       "baseURL": {
         "type": "string",
-        "description": "BaseURL is the site's origin, \"https://example.com\". Required: a canonical URL and an og:image are absolute, and the application cannot know its own host."
+        "description": "BaseURL is the site's origin, \"https://example.com\". A canonical URL and an og:image are absolute, and the application cannot know its own host. When empty, URLs follow the application's Config.BaseURL, or per request the origin an OriginResolver plugin gives the request's host."
       },
       "defaultImage": {
         "type": "string",

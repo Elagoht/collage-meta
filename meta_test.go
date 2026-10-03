@@ -3,6 +3,7 @@ package meta_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,4 +253,89 @@ func TestMeta_FallsBackToConfigBaseURL(t *testing.T) {
 		`<link rel="canonical" href="https://fromconfig.example/">`,
 		`<meta property="og:url" content="https://fromconfig.example/">`,
 	)
+}
+
+// origins resolves two hosts, as elagoht/tenant would.
+type origins struct{}
+
+func (origins) Name() string                             { return "test/origins" }
+func (origins) Version() string                          { return "0" }
+func (origins) Init(context.Context, collage.Host) error { return nil }
+func (origins) Shutdown(context.Context) error           { return nil }
+func (origins) Origin(_ context.Context, host string) (string, bool) {
+	switch host {
+	case "a.test":
+		return "https://a.example", true
+	case "b.test":
+		return "https://b.example", true
+	}
+	return "", false
+}
+
+// hostSite is site with an origin resolver and no BaseURL anywhere.
+func hostSite(t *testing.T) http.Handler {
+	t.Helper()
+	app, err := collage.New(&collage.Config{
+		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
+		Template: collage.TemplateConfig{FS: fstest.MapFS{
+			"t/layout.html": {Data: []byte(`<html><head>{{hoist "head"}}</head><body>{{slot "content"}}</body></html>`)},
+			"t/p.html":      {Data: []byte(`<main>page</main>`)},
+		}, Root: "t"},
+		Locale:  collage.LocaleConfig{Default: "en", Supported: []string{"en", "tr"}},
+		Plugins: []collage.Plugin{origins{}, meta.New(meta.Options{DefaultImage: "/share.png"})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := collage.NewFragment("layout", "layout.html").Build()
+	home := collage.NewPage("home").WithLayouts(layout).
+		WithContent(collage.NewFragment("home", "p.html").Build()).
+		WithPath("en", "/").WithPath("tr", "/").Build()
+	if err := app.RegisterPage(home); err != nil {
+		t.Fatal(err)
+	}
+	return app.Handler()
+}
+
+func TestMeta_CanonicalFollowsHost(t *testing.T) {
+	h := hostSite(t)
+	for host, origin := range map[string]string{"a.test": "https://a.example", "b.test": "https://b.example"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil))
+		contains(t, rec.Body.String(),
+			`<link rel="canonical" href="`+origin+`/">`,
+			`<meta property="og:url" content="`+origin+`/">`,
+			`<meta property="og:image" content="`+origin+`/share.png">`,
+			`<link rel="alternate" hreflang="tr" href="`+origin+`/tr">`,
+		)
+	}
+}
+
+// A host the resolver does not know falls back to nothing: no absolute URLs, and
+// the page still renders.
+func TestMeta_UnknownHostOmitsURLs(t *testing.T) {
+	rec := httptest.NewRecorder()
+	hostSite(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://c.test/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET = %d, want 200", rec.Code)
+	}
+	lacks(t, rec.Body.String(), `canonical`, `og:image"`)
+}
+
+// Without its own BaseURL, Config.BaseURL or a resolver, the application does not
+// start.
+func TestMeta_NoOriginSourceFailsStart(t *testing.T) {
+	app, err := collage.New(&collage.Config{
+		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
+		Template: collage.TemplateConfig{FS: fstest.MapFS{
+			"t/p.html": {Data: []byte(`<html></html>`)},
+		}, Root: "t"},
+		Plugins: []collage.Plugin{meta.New(meta.Options{})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Start(); !errors.Is(err, meta.ErrNoBaseURL) {
+		t.Fatalf("Start = %v, want ErrNoBaseURL", err)
+	}
 }
