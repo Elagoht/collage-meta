@@ -17,8 +17,6 @@ import (
 
 var published = time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
 
-type view struct{}
-
 func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) http.Handler {
 	t.Helper()
 	app, err := collage.New(&collage.Config{
@@ -42,8 +40,8 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 		WithPath("en", "/").WithPath("tr", "/").Build()
 
 	post := collage.NewPage("post").WithLayouts(layout()).
-		WithContent(collage.NewFragment("post", "p.html").WithDataHandler(
-			func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
+		WithContent(collage.NewFragment("post", "p.html").WithData(collage.Effect(
+			func(_ context.Context, rc *collage.RenderContext) error {
 				meta.Set(rc, meta.Page{
 					Title:       `Hello <"world">`,
 					Description: "A post & more",
@@ -54,22 +52,22 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 					Modified:    published.Add(time.Hour),
 					Author:      "Ada",
 				})
-				return view{}, nil, nil
-			}).Build()).
+				return nil
+			})).Build()).
 		WithPath("en", "/blog/{slug}").WithPath("tr", "/yazi/{slug}").Build()
 
 	// Only in English, and a copy of another page: its canonical is set by hand,
 	// and a fragment's own description beats Set's.
 	only := collage.NewPage("only").WithLayouts(layout()).
-		WithContent(collage.NewFragment("only", "override.html").WithDataHandler(
-			func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
+		WithContent(collage.NewFragment("only", "override.html").WithData(collage.Effect(
+			func(_ context.Context, rc *collage.RenderContext) error {
 				meta.Set(rc, meta.Page{Canonical: "/blog/original", Description: "from Set", TwitterCard: meta.Summary})
-				return view{}, nil, nil
-			}).WithSlot("inner", false, false).WithSlotFragment("inner", collage.NewFragment("inner", "p.html").WithDataHandler(
-			func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
+				return nil
+			})).WithSlot("inner", false, false).WithSlotFragment("inner", collage.NewFragment("inner", "p.html").WithData(collage.Effect(
+			func(_ context.Context, rc *collage.RenderContext) error {
 				rc.HoistMeta("description", "from a fragment")
-				return view{}, nil, nil
-			}).Build()).Build()).
+				return nil
+			})).Build()).Build()).
 		WithPath("en", "/only").Build()
 
 	for _, p := range []*collage.Page{home, post, only} {
@@ -214,11 +212,11 @@ func TestSetWithoutPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := collage.NewPage("p").WithContent(collage.NewFragment("p", "p.html").WithDataHandler(
-		func(_ context.Context, rc *collage.RenderContext) (any, []string, error) { // any: DataHandlerFunc's own return type
+	page := collage.NewPage("p").WithContent(collage.NewFragment("p", "p.html").WithData(collage.Effect(
+		func(_ context.Context, rc *collage.RenderContext) error {
 			meta.Set(rc, meta.Page{Image: "/a.png", Canonical: "https://example.com/p"})
-			return view{}, nil, nil
-		}).Build()).WithPath("en", "/").Build()
+			return nil
+		})).Build()).WithPath("en", "/").Build()
 	if err := app.RegisterPage(page); err != nil {
 		t.Fatal(err)
 	}
