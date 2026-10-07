@@ -16,7 +16,7 @@ app, err := collage.New(&collage.Config{
 })
 ```
 
-Requires collage v0.49.0 or later. The tags are hoisted, so the layout needs the
+Requires collage v0.50.0 or later. The tags are hoisted, so the layout needs the
 marker:
 
 ```html

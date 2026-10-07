@@ -130,8 +130,8 @@ type site struct {
 	base, scheme string
 }
 
-// siteKey is where the plugin leaves its site in a render's SharedData.
-const siteKey = Name + ":site"
+// siteKey is where the plugin leaves its site in a render's values.
+var siteKey = collage.NewKey[*site](Name + ":site")
 
 // The hooks the plugin means to implement; a misspelt method would otherwise be a
 // hook that silently never fires.
@@ -145,7 +145,7 @@ var (
 func New(opts Options) *Plugin { return &Plugin{opts: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.1" }
+func (p *Plugin) Version() string                { return "0.2.2" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 // ErrNoBaseURL is returned by Init without an absolute BaseURL.
@@ -153,9 +153,11 @@ var ErrNoBaseURL = errors.New("meta: BaseURL is required: canonical URLs and ima
 
 // Init reads the configuration and refuses a site with no origin.
 func (p *Plugin) Init(_ context.Context, host collage.Host) error {
-	if err := host.Config(&p.opts); err != nil {
+	opts, err := collage.PluginConfig(host, p.opts)
+	if err != nil {
 		return err
 	}
+	p.opts = opts
 	p.host = host
 	// The plugin's own BaseURL wins; without one, URLs follow the origin collage
 	// resolves for the request's host, read per render.
@@ -213,7 +215,7 @@ func (p *Plugin) OnBeforeRender(_ context.Context, ev *collage.BeforeRenderEvent
 	if s == nil {
 		return nil
 	}
-	rc.Set(siteKey, s)
+	siteKey.Set(rc, s)
 	o := p.opts
 
 	if o.SiteName != "" {
@@ -253,7 +255,7 @@ func (p *Plugin) pageURL(rc *collage.RenderContext, locale string) string {
 	if err != nil {
 		return ""
 	}
-	s, _ := collage.Get[*site](rc, siteKey)
+	s, _ := siteKey.Get(rc)
 	if s == nil {
 		return ""
 	}
@@ -314,7 +316,7 @@ func Set(rc *collage.RenderContext, page Page) {
 	if rc == nil {
 		return
 	}
-	s, _ := collage.Get[*site](rc, siteKey)
+	s, _ := siteKey.Get(rc)
 	if page.Title != "" {
 		rc.HoistProperty("og:title", page.Title)
 	}
