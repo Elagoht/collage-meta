@@ -3,6 +3,7 @@
   "name": "elagoht/meta",
   "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
   "repository": "https://github.com/Elagoht/collage-meta",
+  "setup": "Canonical URLs and images are absolute, so it needs the site's origin: set `BASE_URL` in a project `collage new` made (it becomes `Config.BaseURL`), or `\"baseURL\"` in this plugin's section of `plugins-config.json`.",
   "config": {
     "type": "object",
     "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
