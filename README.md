@@ -7,17 +7,18 @@ from what each page says about itself.
 
 ```go
 app, err := collage.New(&collage.Config{
+	BaseURL: "https://example.com",
 	Plugins: []collage.Plugin{meta.New(meta.Options{
 		SiteName:     "The blog",
-		BaseURL:      "https://example.com",
 		DefaultImage: "/static/share.png",
 		TwitterSite:  "@example",
 	})},
 })
 ```
 
-Requires collage v0.60.0 or later. The tags are hoisted, so the layout needs the
-marker:
+Requires collage v0.61.0 or later. URLs are absolute against the site's origin,
+`Config.BaseURL` (`BASE_URL` in a project `collage new` made), so set it. The tags
+are hoisted, so the layout needs the marker:
 
 ```html
 <head>
@@ -44,7 +45,7 @@ Registering the plugin is enough for these, on every page:
 <meta name="twitter:site" content="@example">
 ```
 
-- **The canonical URL** is `BaseURL` and the page's own path in the locale it is
+- **The canonical URL** is the site's origin and the page's own path in the locale it is
   rendered in, built by name as `{{pageURL}}` builds it — so the query string a
   reader arrived with, a tracking parameter included, is never part of it.
 - **The translations** are every supported locale the page has a path in. A page
@@ -92,7 +93,7 @@ func articleData(ctx context.Context, rc *collage.RenderContext) (view, []string
 
 An empty field leaves the default, or nothing, in its place. Every value is
 escaped. A relative `Image` or `Canonical` — `/uploads/a.jpg`, `uploads/a.jpg` —
-is joined to `BaseURL`; an absolute URL is kept.
+is joined to the site's origin; an absolute URL is kept.
 
 The page's `<title>` is not among them: it is `rc.HoistTitle` or the fragment's
 `WithTitle`, as it is without the plugin.
@@ -113,7 +114,6 @@ description too, and appears once.
 {
   "elagoht/meta": {
     "siteName": "The blog",
-    "baseURL": "https://example.com",
     "defaultImage": "/static/share.png",
     "defaultImageAlt": "The blog's logo on blue",
     "twitterSite": "@example",
@@ -123,14 +123,22 @@ description too, and appears once.
 }
 ```
 
-`baseURL` is an `http` or `https` origin with no query. Leave it empty and URLs
-follow the origin collage resolves for the request's host (collage v0.42.0): the
+URLs follow the origin collage resolves for the request's host: the
 application's `Config.BaseURL`, or per host the origin a plugin implementing
 `collage.OriginResolver` (such as `elagoht/tenant`) gives, so one site serves each
 host its own canonical, `og:url`, `og:image` and `hreflang` links. A host with no
 origin gets no absolute URLs. The application does not start when no source of an
 origin exists. `noAlternates` leaves the `hreflang` links out, for a
 layout that writes its own; `og:locale:alternate` is still written.
+
+## Changed in v0.3.0
+
+- The `baseURL` key and `Options.BaseURL` are removed. Set the application's
+  `Config.BaseURL` (`BASE_URL`) instead, or register an origin resolver; a
+  configuration that still has `baseURL` stops the application with
+  `unknown key "baseURL"`.
+- `ErrNoBaseURL` now means only "no origin anywhere"; a malformed
+  `Config.BaseURL` is refused by collage itself.
 
 ## Limitations
 

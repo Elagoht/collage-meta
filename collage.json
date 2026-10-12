@@ -3,18 +3,14 @@
   "name": "elagoht/meta",
   "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
   "repository": "https://github.com/Elagoht/collage-meta",
-  "setup": "Canonical URLs and images are absolute, so it needs the site's origin: set `BASE_URL` in a project `collage new` made (it becomes `Config.BaseURL`), or `\"baseURL\"` in this plugin's section of `plugins-config.json`.",
+  "setup": "Canonical URLs and images are absolute, so it needs the site's origin: set `BASE_URL` in a project `collage new` made (it becomes `Config.BaseURL`), or register an origin resolver such as `elagoht/tenant`. Without one the application does not start.",
   "config": {
     "type": "object",
     "description": "A collage plugin that writes the tags a page is shared and indexed by into its head: Open Graph, Twitter cards, the canonical URL, the meta description, and the page's translations.",
     "properties": {
-      "baseURL": {
-        "type": "string",
-        "description": "BaseURL is the site's origin, \"https://example.com\". A canonical URL and an og:image are absolute, and the application cannot know its own host. When empty, URLs follow the application's Config.BaseURL, or per request the origin an OriginResolver plugin gives the request's host."
-      },
       "defaultImage": {
         "type": "string",
-        "description": "DefaultImage is the og:image of a page that names none: a path on the site, made absolute with BaseURL, or an absolute URL."
+        "description": "DefaultImage is the og:image of a page that names none: a path on the site, made absolute with the site's origin, or an absolute URL."
       },
       "defaultImageAlt": {
         "type": "string",

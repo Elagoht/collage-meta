@@ -3,12 +3,15 @@
 // meta description, and the page's translations.
 //
 //	app, err := collage.New(&collage.Config{
+//		BaseURL: "https://example.com",
 //		Plugins: []collage.Plugin{meta.New(meta.Options{
 //			SiteName:     "The blog",
-//			BaseURL:      "https://example.com",
 //			DefaultImage: "/static/share.png",
 //		})},
 //	})
+//
+// URLs are absolute against the origin collage resolves for the request:
+// Config.BaseURL, or per host the origin an OriginResolver plugin gives.
 //
 // Registered, every page gets the site's defaults and what can be worked out
 // without asking it: its canonical URL, og:url, og:locale, and a
@@ -38,7 +41,6 @@ package meta
 import (
 	"context"
 	"errors"
-	"fmt"
 	"html"
 	"html/template"
 	"net/url"
@@ -67,13 +69,8 @@ const (
 type Options struct {
 	// SiteName is og:site_name.
 	SiteName string `json:"siteName"`
-	// BaseURL is the site's origin, "https://example.com". A canonical URL and an
-	// og:image are absolute, and the application cannot know its own host. When
-	// empty, URLs follow the application's Config.BaseURL, or per request the
-	// origin an OriginResolver plugin gives the request's host.
-	BaseURL string `json:"baseURL"`
 	// DefaultImage is the og:image of a page that names none: a path on the site,
-	// made absolute with BaseURL, or an absolute URL.
+	// made absolute with the site's origin, or an absolute URL.
 	DefaultImage string `json:"defaultImage"`
 	// DefaultImageAlt describes DefaultImage.
 	DefaultImageAlt string `json:"defaultImageAlt"`
@@ -95,15 +92,16 @@ type Page struct {
 	Title string
 	// Description is <meta name="description"> and og:description.
 	Description string
-	// Image is og:image: a path on the site, made absolute with BaseURL, or an
-	// absolute URL. Naming one makes the Twitter card a large-image one.
+	// Image is og:image: a path on the site, made absolute with the site's
+	// origin, or an absolute URL. Naming one makes the Twitter card a large-image one.
 	Image string
 	// ImageAlt describes Image, as og:image:alt and twitter:image:alt.
 	ImageAlt string
 	// Type is og:type: Website, the default, or Article.
 	Type string
 	// Canonical replaces the canonical URL worked out from the page's own path —
-	// for a page that is a copy of another. A path is made absolute with BaseURL.
+	// for a page that is a copy of another. A path is made absolute with the
+	// site's origin.
 	Canonical string
 	// TwitterCard is twitter:card: Summary or SummaryLargeImage. Default the
 	// latter when there is an image, the former when there is none.
@@ -120,7 +118,6 @@ type Page struct {
 type Plugin struct {
 	opts Options
 	host collage.Host
-	site *site
 }
 
 // site is what Set needs of the plugin's configuration, handed to it through the
@@ -145,11 +142,12 @@ var (
 func New(opts Options) *Plugin { return &Plugin{opts: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.4" }
+func (p *Plugin) Version() string                { return "0.3.0" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
-// ErrNoBaseURL is returned by Init without an absolute BaseURL.
-var ErrNoBaseURL = errors.New("meta: BaseURL is required: canonical URLs and images are absolute")
+// ErrNoBaseURL is returned by Init when the application has no origin to make
+// URLs absolute against: no Config.BaseURL and no OriginResolver plugin.
+var ErrNoBaseURL = errors.New("meta: no origin: set Config.BaseURL (BASE_URL) or register an OriginResolver plugin; canonical URLs and images are absolute")
 
 // Init reads the configuration and refuses a site with no origin.
 func (p *Plugin) Init(_ context.Context, host collage.Host) error {
@@ -159,28 +157,14 @@ func (p *Plugin) Init(_ context.Context, host collage.Host) error {
 	}
 	p.opts = opts
 	p.host = host
-	// The plugin's own BaseURL wins; without one, URLs follow the origin collage
-	// resolves for the request's host, read per render.
-	if p.opts.BaseURL == "" {
-		if !canResolve(host) {
-			return fmt.Errorf("%w, got %q", ErrNoBaseURL, "")
-		}
-		return nil
+	if !canResolve(host) {
+		return ErrNoBaseURL
 	}
-	base, err := url.Parse(p.opts.BaseURL)
-	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
-		return fmt.Errorf("%w, got %q", ErrNoBaseURL, p.opts.BaseURL)
-	}
-	if base.RawQuery != "" || base.Fragment != "" {
-		return fmt.Errorf("meta: BaseURL %q must be an origin, without a query or a fragment", p.opts.BaseURL)
-	}
-	p.site = &site{base: strings.TrimSuffix(p.opts.BaseURL, "/"), scheme: base.Scheme}
 	return nil
 }
 
-// canResolve reports whether collage can name an origin without the plugin's
-// own BaseURL: from Config.BaseURL, or per host from a plugin implementing
-// collage.OriginResolver.
+// canResolve reports whether collage can name an origin: from Config.BaseURL,
+// or per host from a plugin implementing collage.OriginResolver.
 func canResolve(host collage.Host) bool {
 	if host.BaseURL() != "" {
 		return true
@@ -188,18 +172,15 @@ func canResolve(host collage.Host) bool {
 	return host.MultiOrigin()
 }
 
-// siteFor is the site rc's URLs are absolute against: the configured one, or one
-// for the origin collage resolves for the request's host.
+// siteFor is the site rc's URLs are absolute against: the origin collage
+// resolves for the request's host, or nil when it resolves none.
 func (p *Plugin) siteFor(rc *collage.RenderContext) *site {
-	if p.site != nil {
-		return p.site
-	}
 	origin := collage.BaseURL(rc)
 	u, err := url.Parse(origin)
 	if origin == "" || err != nil {
 		return nil
 	}
-	return &site{base: origin, scheme: u.Scheme}
+	return &site{base: strings.TrimSuffix(origin, "/"), scheme: u.Scheme}
 }
 
 // OnBeforeRender declares the site's defaults and the page's own URLs. Declared

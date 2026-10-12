@@ -2,44 +2,30 @@ package meta_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	meta "github.com/Elagoht/collage-meta"
 	"github.com/Elagoht/collage/pkg/collage"
+	"github.com/Elagoht/collage/pkg/collagetest"
 )
 
 var published = time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
 
-func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) http.Handler {
-	t.Helper()
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/layout.html":   {Data: []byte(`<html><head>{{hoist "head"}}</head><body>{{slot "content"}}</body></html>`)},
-			"t/p.html":        {Data: []byte(`<main>page</main>`)},
-			"t/override.html": {Data: []byte(`<main>override{{slot "inner"}}</main>`)},
-		}, Root: "t"},
-		Locale:       collage.LocaleConfig{Default: "en", Supported: []string{"en", "tr"}},
-		Plugins:      []collage.Plugin{meta.New(opts)},
-		PluginConfig: config,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	layout := func() *collage.Fragment { return collage.NewFragment("layout", "layout.html").Build() }
+// layoutFragment is the layout every test page renders in: the Site's own.
+func layoutFragment() *collage.Fragment { return collage.NewFragment("layout", "layout.html").Build() }
 
-	home := collage.NewPage("home").WithLayouts(layout()).
+// pages are the three pages the tests read: a home page in two locales, a post
+// that says what it is about, and an English-only copy of another page.
+func pages() []collage.Registrable {
+	home := collage.NewPage("home").WithLayouts(layoutFragment()).
 		WithContent(collage.NewFragment("home", "p.html").Build()).
 		WithPath("en", "/").WithPath("tr", "/").Build()
 
-	post := collage.NewPage("post").WithLayouts(layout()).
+	post := collage.NewPage("post").WithLayouts(layoutFragment()).
 		WithContent(collage.NewFragment("post", "p.html").WithData(collage.Effect(
 			func(_ context.Context, rc *collage.RenderContext) error {
 				meta.Set(rc, meta.Page{
@@ -58,7 +44,7 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 
 	// Only in English, and a copy of another page: its canonical is set by hand,
 	// and a fragment's own description beats Set's.
-	only := collage.NewPage("only").WithLayouts(layout()).
+	only := collage.NewPage("only").WithLayouts(layoutFragment()).
 		WithContent(collage.NewFragment("only", "override.html").WithData(collage.Effect(
 			func(_ context.Context, rc *collage.RenderContext) error {
 				meta.Set(rc, meta.Page{Canonical: "/blog/original", Description: "from Set", TwitterCard: meta.Summary})
@@ -70,18 +56,30 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 			})).Build()).Build()).
 		WithPath("en", "/only").Build()
 
-	for _, p := range []*collage.Page{home, post, only} {
-		if err := app.RegisterPage(p); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return app.Handler()
+	return []collage.Registrable{home, post, only}
 }
 
-func get(h http.Handler, path string) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-	return rec
+// siteOptions builds the test site: English and Turkish, the given BaseURL, the
+// plugin with opts, and the three pages.
+func siteOptions(opts meta.Options, baseURL string, extra ...collagetest.SiteOption) []collagetest.SiteOption {
+	return append([]collagetest.SiteOption{
+		collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{
+			"p.html":        `<main>page</main>`,
+			"override.html": `<main>override{{slot "inner"}}</main>`,
+		}),
+		collagetest.WithRegister(pages()...),
+		collagetest.WithConfig(func(c *collage.Config) {
+			c.Locale = collage.LocaleConfig{Default: "en", Supported: []string{"en", "tr"}}
+			c.BaseURL = baseURL
+		}),
+		collagetest.WithPlugins(meta.New(opts)),
+	}, extra...)
+}
+
+func site(t *testing.T, opts meta.Options, extra ...collagetest.SiteOption) *collagetest.Site {
+	t.Helper()
+	return collagetest.NewSite(t, siteOptions(opts, "https://example.com", extra...)...)
 }
 
 func contains(t *testing.T, body string, wants ...string) {
@@ -104,7 +102,6 @@ func lacks(t *testing.T, body string, unwanted ...string) {
 
 var defaults = meta.Options{
 	SiteName:     "The blog",
-	BaseURL:      "https://example.com/",
 	DefaultImage: "/static/share.png",
 	TwitterSite:  "@example",
 	Locales:      map[string]string{"en": "en_US"},
@@ -113,7 +110,7 @@ var defaults = meta.Options{
 // A page that says nothing still gets the site's defaults, its canonical URL, and
 // its translations.
 func TestDefaults(t *testing.T) {
-	body := get(site(t, defaults, nil), "/").Body.String()
+	body := site(t, defaults).Get("/").Body
 	contains(t, body,
 		`<meta property="og:site_name" content="The blog">`,
 		`<meta property="og:type" content="website">`,
@@ -133,8 +130,7 @@ func TestDefaults(t *testing.T) {
 
 // What a page says wins over the defaults, tag by tag, escaped, in its own locale.
 func TestSet(t *testing.T) {
-	h := site(t, defaults, nil)
-	body := get(h, "/tr/yazi/hello").Body.String()
+	body := site(t, defaults).Get("/tr/yazi/hello").Body
 	contains(t, body,
 		`<meta property="og:title" content="Hello &lt;&#34;world&#34;&gt;">`,
 		`<meta name="description" content="A post &amp; more">`,
@@ -162,7 +158,7 @@ func TestSet(t *testing.T) {
 // A canonical set by hand replaces the worked-out one; a deeper fragment's own
 // description wins over Set's; a page in one locale has no alternates.
 func TestCanonicalAndSingleLocale(t *testing.T) {
-	body := get(site(t, defaults, nil), "/only").Body.String()
+	body := site(t, defaults).Get("/only").Body
 	contains(t, body,
 		`<link rel="canonical" href="https://example.com/blog/original">`,
 		`<meta property="og:url" content="https://example.com/blog/original">`,
@@ -179,78 +175,49 @@ func TestCanonicalAndSingleLocale(t *testing.T) {
 // Configuration overlays the options; a site with no image has a summary card;
 // NoAlternates leaves the hreflang links to the layout.
 func TestConfiguration(t *testing.T) {
-	config := map[string]json.RawMessage{meta.Name: json.RawMessage(`{"baseURL":"https://other.example","noAlternates":true,"defaultImage":""}`)}
-	body := get(site(t, defaults, config), "/").Body.String()
+	body := site(t, defaults,
+		collagetest.WithPluginConfig(meta.Name, `{"noAlternates":true,"defaultImage":""}`),
+	).Get("/").Body
 	contains(t, body,
-		`<link rel="canonical" href="https://other.example/">`,
+		`<link rel="canonical" href="https://example.com/">`,
 		`<meta name="twitter:card" content="summary">`,
 		`<meta property="og:locale:alternate" content="tr">`,
 	)
 	lacks(t, body, `hreflang`, `og:image`)
 }
 
-// A site without an absolute origin does not start.
-func TestBaseURLRequired(t *testing.T) {
-	for _, base := range []string{"", "example.com", "/", "ftp://example.com", "https://example.com/?a=1"} {
-		opts := defaults
-		opts.BaseURL = base
-		if code := get(site(t, opts, nil), "/").Code; code != http.StatusServiceUnavailable {
-			t.Errorf("BaseURL %q: %d, want 503", base, code)
-		}
+// The plugin's own baseURL key is gone (v0.3.0): URLs follow Config.BaseURL, and
+// a configuration still naming the key stops the application.
+func TestBaseURLKeyRemoved(t *testing.T) {
+	_, err := collagetest.TrySite(t, siteOptions(defaults, "https://example.com",
+		collagetest.WithPluginConfig(meta.Name, `{"baseURL":"https://other.example"}`))...)
+	if err == nil || !strings.Contains(err.Error(), `unknown key "baseURL"`) {
+		t.Fatalf("start = %v, want an unknown key \"baseURL\" error", err)
+	}
+}
+
+// Without Config.BaseURL or a resolver, the application does not start.
+func TestNoOriginFailsStart(t *testing.T) {
+	_, err := collagetest.TrySite(t, siteOptions(defaults, "")...)
+	if !errors.Is(err, meta.ErrNoBaseURL) {
+		t.Fatalf("start = %v, want ErrNoBaseURL", err)
 	}
 }
 
 // Without the plugin, Set still declares, and cannot make a path absolute.
 func TestSetWithoutPlugin(t *testing.T) {
 	meta.Set(nil, meta.Page{Title: "x"})
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/p.html": {Data: []byte(`<html><head>{{hoist "head"}}</head></html>`)},
-		}, Root: "t"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	page := collage.NewPage("p").WithContent(collage.NewFragment("p", "p.html").WithData(collage.Effect(
+	page := collage.NewPage("p").WithLayouts(layoutFragment()).WithContent(collage.NewFragment("p", "p.html").WithData(collage.Effect(
 		func(_ context.Context, rc *collage.RenderContext) error {
 			meta.Set(rc, meta.Page{Image: "/a.png", Canonical: "https://example.com/p"})
 			return nil
 		})).Build()).WithPath("en", "/").Build()
-	if err := app.RegisterPage(page); err != nil {
-		t.Fatal(err)
-	}
-	body := get(app.Handler(), "/").Body.String()
-	contains(t, body, `<meta property="og:image" content="/a.png">`, `<link rel="canonical" href="https://example.com/p">`)
-}
-
-// With no BaseURL of its own, the plugin falls back to the application's
-// Config.BaseURL for the canonical URL and og:url.
-func TestMeta_FallsBackToConfigBaseURL(t *testing.T) {
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/p.html": {Data: []byte(`<html><head>{{hoist "head"}}</head><body>x</body></html>`)},
-		}, Root: "t"},
-		Locale:  collage.LocaleConfig{Default: "en", Supported: []string{"en"}},
-		BaseURL: "https://fromconfig.example",
-		Plugins: []collage.Plugin{meta.New(meta.Options{})}, // no BaseURL of its own
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	page := collage.NewPage("home").WithContent(collage.NewFragment("home", "p.html").Build()).WithPath("en", "/").Build()
-	if err := app.RegisterPage(page); err != nil {
-		t.Fatal(err)
-	}
-	rec := get(app.Handler(), "/")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET / = %d, want 200", rec.Code)
-	}
-	contains(t, rec.Body.String(),
-		`<link rel="canonical" href="https://fromconfig.example/">`,
-		`<meta property="og:url" content="https://fromconfig.example/">`,
+	s := collagetest.NewSite(t,
+		collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{"p.html": `<main>p</main>`}),
+		collagetest.WithRegister(page),
 	)
+	contains(t, s.Get("/").Body, `<meta property="og:image" content="/a.png">`, `<link rel="canonical" href="https://example.com/p">`)
 }
 
 // origins resolves two hosts, as elagoht/tenant would.
@@ -270,37 +237,25 @@ func (origins) Origin(_ context.Context, host string) (string, bool) {
 	return "", false
 }
 
-// hostSite is site with an origin resolver and no BaseURL anywhere.
-func hostSite(t *testing.T) http.Handler {
+// hostSite is a site with an origin resolver and no BaseURL.
+func hostSite(t *testing.T) *collagetest.Site {
 	t.Helper()
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/layout.html": {Data: []byte(`<html><head>{{hoist "head"}}</head><body>{{slot "content"}}</body></html>`)},
-			"t/p.html":      {Data: []byte(`<main>page</main>`)},
-		}, Root: "t"},
-		Locale:  collage.LocaleConfig{Default: "en", Supported: []string{"en", "tr"}},
-		Plugins: []collage.Plugin{origins{}, meta.New(meta.Options{DefaultImage: "/share.png"})},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	layout := collage.NewFragment("layout", "layout.html").Build()
-	home := collage.NewPage("home").WithLayouts(layout).
-		WithContent(collage.NewFragment("home", "p.html").Build()).
-		WithPath("en", "/").WithPath("tr", "/").Build()
-	if err := app.RegisterPage(home); err != nil {
-		t.Fatal(err)
-	}
-	return app.Handler()
+	return collagetest.NewSite(t, collagetest.WithoutHome(),
+		collagetest.WithTemplates(map[string]string{"p.html": `<main>page</main>`}),
+		collagetest.WithRegister(collage.NewPage("home").WithLayouts(layoutFragment()).
+			WithContent(collage.NewFragment("home", "p.html").Build()).
+			WithPath("en", "/").WithPath("tr", "/").Build()),
+		collagetest.WithConfig(func(c *collage.Config) {
+			c.Locale = collage.LocaleConfig{Default: "en", Supported: []string{"en", "tr"}}
+		}),
+		collagetest.WithPlugins(origins{}, meta.New(meta.Options{DefaultImage: "/share.png"})),
+	)
 }
 
 func TestMeta_CanonicalFollowsHost(t *testing.T) {
-	h := hostSite(t)
+	s := hostSite(t)
 	for host, origin := range map[string]string{"a.test": "https://a.example", "b.test": "https://b.example"} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil))
-		contains(t, rec.Body.String(),
+		contains(t, s.Get("http://"+host+"/").Body,
 			`<link rel="canonical" href="`+origin+`/">`,
 			`<meta property="og:url" content="`+origin+`/">`,
 			`<meta property="og:image" content="`+origin+`/share.png">`,
@@ -312,28 +267,6 @@ func TestMeta_CanonicalFollowsHost(t *testing.T) {
 // A host the resolver does not know falls back to nothing: no absolute URLs, and
 // the page still renders.
 func TestMeta_UnknownHostOmitsURLs(t *testing.T) {
-	rec := httptest.NewRecorder()
-	hostSite(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://c.test/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET = %d, want 200", rec.Code)
-	}
-	lacks(t, rec.Body.String(), `canonical`, `og:image"`)
-}
-
-// Without its own BaseURL, Config.BaseURL or a resolver, the application does not
-// start.
-func TestMeta_NoOriginSourceFailsStart(t *testing.T) {
-	app, err := collage.New(&collage.Config{
-		Server: collage.ServerConfig{Host: "localhost", Port: 3000},
-		Template: collage.TemplateConfig{FS: fstest.MapFS{
-			"t/p.html": {Data: []byte(`<html></html>`)},
-		}, Root: "t"},
-		Plugins: []collage.Plugin{meta.New(meta.Options{})},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.Start(); !errors.Is(err, meta.ErrNoBaseURL) {
-		t.Fatalf("Start = %v, want ErrNoBaseURL", err)
-	}
+	res := hostSite(t).Get("http://c.test/").WantStatus(http.StatusOK)
+	lacks(t, res.Body, `canonical`, `og:image"`)
 }
