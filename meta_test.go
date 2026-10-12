@@ -63,7 +63,7 @@ func site(t *testing.T, opts meta.Options, config map[string]json.RawMessage) ht
 			func(_ context.Context, rc *collage.RenderContext) error {
 				meta.Set(rc, meta.Page{Canonical: "/blog/original", Description: "from Set", TwitterCard: meta.Summary})
 				return nil
-			})).WithSlot("inner", false, false).WithSlotFragment("inner", collage.NewFragment("inner", "p.html").WithData(collage.Effect(
+			})).WithSlot("inner").WithSlotFragment("inner", collage.NewFragment("inner", "p.html").WithData(collage.Effect(
 			func(_ context.Context, rc *collage.RenderContext) error {
 				rc.HoistMeta("description", "from a fragment")
 				return nil

@@ -145,7 +145,7 @@ var (
 func New(opts Options) *Plugin { return &Plugin{opts: opts} }
 
 func (p *Plugin) Name() string                   { return Name }
-func (p *Plugin) Version() string                { return "0.2.3" }
+func (p *Plugin) Version() string                { return "0.2.4" }
 func (p *Plugin) Shutdown(context.Context) error { return nil }
 
 // ErrNoBaseURL is returned by Init without an absolute BaseURL.
@@ -185,8 +185,7 @@ func canResolve(host collage.Host) bool {
 	if host.BaseURL() != "" {
 		return true
 	}
-	origins, ok := host.(collage.Origins)
-	return ok && origins.Dynamic()
+	return host.MultiOrigin()
 }
 
 // siteFor is the site rc's URLs are absolute against: the configured one, or one
